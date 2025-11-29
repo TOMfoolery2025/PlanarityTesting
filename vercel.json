@@ -8,7 +8,17 @@
   ],
   "routes": [
     {
-      "src": "/(.*)",
+      "src": "/",
+      "dest": "/index.html"
+    },
+    
+    {
+      "src": "/(script\\.js|favicon\\.ico)",
+      "dest": "/$1"
+    },
+
+    {
+      "src": "/planarity",
       "dest": "api/index.py"
     }
   ]
