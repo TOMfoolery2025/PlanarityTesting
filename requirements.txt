@@ -6,4 +6,4 @@ Pillow==9.5.0
 kiwisolver==1.4.5
 fonttools==4.49.0
 packaging==23.2
-
+flask-cors==6.0.1
