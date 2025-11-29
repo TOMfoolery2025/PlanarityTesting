@@ -1,26 +1,32 @@
 {
     "version": 2,
     "builds": [
+        /* 1. Python Build Step */
         {
             "src": "api/index.py",
             "use": "@vercel/python"
         },
+        /* 2. Explicitly treat public files as static assets */
         {
             "src": "public/**",
             "use": "@vercel/static"
         }
     ],
     "routes": [
+        /* 3. API Route: Directs all /api/planarity requests to the Python Serverless Function */
+        /* Note: Using the exact file path in dest is often safer for complex imports */
         {
-            "src": "/api/(.*)",
+            "src": "/api/planarity",
             "dest": "/api/index.py"
         },
+        /* 4. Root Route: Maps the base URL to the index.html file location */
         {
             "src": "/",
             "dest": "/public/index.html"
         },
+        /* 5. Static Assets Route: Maps all other files (like script.js) */
         {
-            "src": "/(.*\\.(js|css|html))",
+            "src": "/(.*)",
             "dest": "/public/$1"
         }
     ]
