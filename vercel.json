@@ -3,23 +3,21 @@
   "builds": [
     {
       "src": "api/index.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "installCommand": "pip install -r requirements.txt" 
+      }
     }
   ],
-  "routes": [
-    {
-      "src": "/",
-      "dest": "/index.html"
-    },
-    
-    {
-      "src": "/(script\\.js|favicon\\.ico)",
-      "dest": "/$1"
-    },
+  "staticFiles": {
+    "directory": "./" 
+  },
+  "rewrites": [
+    { "source": "/", "destination": "/index.html" },
 
-    {
-      "src": "/planarity",
-      "dest": "api/index.py"
-    }
+    { "source": "/script.js", "destination": "/script.js" },
+    { "source": "/favicon.ico", "destination": "/favicon.ico" },
+
+    { "source": "/planarity", "destination": "api/index.py" }
   ]
 }
