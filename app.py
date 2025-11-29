@@ -5,7 +5,7 @@ matplotlib.use('Agg')
 
 import networkx as nx
 import matplotlib.pyplot as plt
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import io
 
@@ -303,4 +303,5 @@ def planarity_api():
 
 
 if __name__ == '__main__':
+
     app.run(debug=True)
