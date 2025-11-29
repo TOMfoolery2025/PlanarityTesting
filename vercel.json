@@ -7,21 +7,19 @@
         }
     ],
     "routes": [
-        /* 1. Dedicated Root Route: Serve index.html when user visits the domain root (/) */
         {
             "src": "/",
             "dest": "/public/index.html"
         },
-        /* 2. API Route: Directs all /api/* requests to the Python Serverless Function */
         {
             "src": "/api/(.*)",
             "dest": "/api/index.py" 
             /* NOTE: This should map to the file name, not just the path */
         },
-        /* 3. Static Assets Route: Directs all other file requests (like script.js, images, etc.) to the public folder */
         {
             "src": "/(.*)",
             "dest": "/public/$1"
         }
     ]
 }
+
