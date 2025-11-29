@@ -7,12 +7,10 @@
     }
   ],
   "routes": [
-    { "src": "/planarity", "dest": "api/index.py" },
-
-    { "src": "/", "dest": "/index.html" },
-    { "src": "/script.js", "dest": "/script.js" },
-    { "src": "/favicon.ico", "dest": "/favicon.ico" },
-
-    { "src": "/(.*)", "dest": "/$1" }
+    {
+      "src": "/(.*)",
+      "dest": "api/index.py"
+    }
   ]
 }
+
