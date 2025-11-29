@@ -54,7 +54,7 @@ async function processGraph() {
                 messageElement.style.color = data.is_planar ? 'green' : 'red';
 
                 // Display Original Graph (Image 1)
-                imageOriginalElement.src = `data:image/svg+xml;base64,${data.image_original}`;
+                imageOriginalElement.src = `data:image/png;base64,${data.image_original}`;
                 imageOriginalElement.style.display = 'block';
 
                 // Handle Non-Planar Case (Images 2 and 3)
@@ -63,13 +63,13 @@ async function processGraph() {
                     // Display Kuratowski Subdivision (Image 2)
                     subdivisionLabel.textContent = `Intermediate Subdivision: ${data.kuratowski_type}`;
                     subdivisionLabel.style.display = 'block';
-                    imageSubdivisionElement.src = `data:image/svg+xml;base64,${data.image_subdivision}`;
+                    imageSubdivisionElement.src = `data:image/png;base64,${data.image_subdivision}`;
                     imageSubdivisionElement.style.display = 'block';
 
                     // Display Minimal Minor (Image 3)
                     minorLabel.textContent = `Minimal Kuratowski Minor (${data.kuratowski_type.replace(' Subdivision', '')})`;
                     minorLabel.style.display = 'block';
-                    imageMinorElement.src = `data:image/svg+xml;base64,${data.image_minor}`;
+                    imageMinorElement.src = `data:image/png;base64,${data.image_minor}`;
                     imageMinorElement.style.display = 'block';
 
                 } else {
