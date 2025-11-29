@@ -1,269 +1,323 @@
-# app.py (SVG-based, no Matplotlib / no Pillow)
+# app.py (FINAL FIXED VERSION)
+import matplotlib
+
+matplotlib.use('Agg')
 
 import networkx as nx
-from flask import Flask, request, jsonify
+import matplotlib.pyplot as plt
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import io
-import base64
-import html
 
 app = Flask(__name__)
 CORS(app)
 
 
-## ------------------------
-## Helper: Kuratowski logic
-## ------------------------
+## ----------------------------------------------------------------------
+## KURATOWSKI IDENTIFICATION AND VISUALIZATION FUNCTIONS (MUST COME FIRST)
+## ----------------------------------------------------------------------
+
+# app.py (New helper function)
 
 def is_complete_graph_custom(G):
+    """
+    Checks if a NetworkX graph G is a complete graph (K_n).
+    A graph is complete if every node is connected to every other node.
+    This means the degree of every node must be N - 1.
+    """
     if not G.number_of_nodes():
-        return True
+        return True  # An empty graph is trivially complete
+
+    # N is the required degree for every node (Total nodes - 1)
     required_degree = G.number_of_nodes() - 1
+
+    # Check if every node has the required degree
     for node, degree in G.degree():
         if degree != required_degree:
             return False
+
+    # If the loop finishes, all nodes have the maximum required edges
     return True
 
 
 def get_kuratowski_type(graph):
+    """
+    Identifies if the graph is a subdivision of K5 or K3,3 based on node count and structure.
+    NOTE: nx.check_planarity usually returns a subdivision, which may have > 5 or 6 nodes.
+    This check is most reliable on the MINOR graph.
+    """
     num_nodes = graph.number_of_nodes()
+
+    # K5 Minor Check: 5 nodes, is a complete graph (or close enough)
     if num_nodes == 5 and is_complete_graph_custom(graph):
         return "K_5"
+
+    # K3,3 Minor Check: 6 nodes, is bipartite and complete bipartite
     if num_nodes == 6 and nx.is_bipartite(graph):
+        # Additional check to confirm it is K3,3 (3x3 complete bipartite)
         try:
             p1, p2 = nx.bipartite.sets(graph)
             if len(p1) == 3 and len(p2) == 3:
                 return "K_3,3"
-        except Exception:
+        except:
+            # Fallback if bipartite sets fail
             pass
+
+    # If the minor is a subdivision, classify based on minimum size
     if num_nodes >= 5 and is_complete_graph_custom(graph):
         return "K_5 Subdivision"
     if num_nodes >= 6 and nx.is_bipartite(graph):
         return "K_3,3 Subdivision"
+
     return "Kuratowski Minor"
 
 
 def get_kuratowski_minor(subdivision_graph):
+    """
+    Simplifies the Kuratowski subdivision by repeatedly contracting edges
+    incident to vertices of degree 2, revealing the minor (K5 or K3,3).
+    """
     G_minor = subdivision_graph.copy()
+
+    # --- FIX 3: Robust Contraction Loop ---
+    # We loop until no more degree-2 nodes are found
     while True:
-        degree_two_nodes = [n for n, d in dict(G_minor.degree()).items() if d == 2]
+        # Check all nodes for degree 2
+        degree_two_nodes = [node for node, degree in dict(G_minor.degree()).items() if degree == 2]
+
         if not degree_two_nodes:
             break
+
         u = degree_two_nodes[0]
         neighbors = list(G_minor.neighbors(u))
+
         if len(neighbors) == 2:
             v1, v2 = neighbors[0], neighbors[1]
+
+            # Simulate edge contraction:
+            # 1. Add edge between the two neighbors (if it doesn't exist)
             if v1 != v2 and not G_minor.has_edge(v1, v2):
                 G_minor.add_edge(v1, v2)
+
+            # 2. Remove the intermediate degree-2 node
             G_minor.remove_node(u)
+
     G_minor.remove_nodes_from(list(nx.isolates(G_minor)))
+
     return G_minor
 
 
-## ------------------------
-## SVG rendering helpers
-## ------------------------
+def visualize_kuratowski_subdivision(counterexample_graph):
+    plt.figure(figsize=(6, 6))
 
-def _normalize_positions(pos):
-    # pos: dict node -> (x,y)
-    xs = [x for x, y in pos.values()] if pos else [0]
-    ys = [y for x, y in pos.values()] if pos else [0]
-    min_x, max_x = min(xs), max(xs)
-    min_y, max_y = min(ys), max(ys)
-    width = max_x - min_x if max_x != min_x else 1.0
-    height = max_y - min_y if max_y != min_y else 1.0
-    return min_x, min_y, width, height
+    # Use the function to get the most specific type for the title
+    kuratowski_type = get_kuratowski_type(counterexample_graph)
 
-
-def graph_to_svg(G, pos, highlight_edges=None, title=None, width_px=800, height_px=800, node_style=None):
-    """
-    Render G to an SVG string using provided positions.
-    highlight_edges: set of edge tuples (u,v) to draw in highlight color
-    node_style: dict to override node appearance
-    """
-    if highlight_edges is None:
-        highlight_edges = set()
+    if kuratowski_type.startswith("K_5"):
+        layout = nx.circular_layout(counterexample_graph)
+        node_color = 'r'
+    elif kuratowski_type.startswith("K_3,3"):
+        try:
+            partition_a, partition_b = nx.bipartite.sets(counterexample_graph)
+            layout = nx.bipartite_layout(counterexample_graph, partition_a)
+        except:
+            layout = nx.circular_layout(counterexample_graph)
+        node_color = 'darkorange'
     else:
-        # normalize tuple ordering for undirected edges
-        highlight_edges = {tuple(sorted(e)) for e in highlight_edges}
+        layout = nx.spring_layout(counterexample_graph)
+        node_color = 'darkred'
 
-    # default styles
-    node_style = node_style or {}
-    node_radius = node_style.get("r", 18)
-    node_color = node_style.get("fill", "#76c7ff")  # skyblue
-    node_stroke = node_style.get("stroke", "#1f6feb")
-    edge_color = node_style.get("edge_color", "#444")
-    label_color = node_style.get("label", "#ffffff")
-    highlight_color = node_style.get("highlight_color", "#e63946")  # red-ish
+    plt.title(f"Intermediate Subdivision: {kuratowski_type}", fontsize=12, color=node_color)
+    nx.draw(counterexample_graph, layout,
+            with_labels=True, node_color=node_color, node_size=800,
+            font_color='white', font_weight='bold', edge_color='k', width=2)
+    plt.axis('off')
 
-    # compute viewport box from pos
-    min_x, min_y, w, h = _normalize_positions(pos)
-    padding = max(w, h) * 0.12
-    vb_min_x = min_x - padding
-    vb_min_y = min_y - padding
-    vb_w = w + 2 * padding
-    vb_h = h + 2 * padding
+    img_buffer = io.BytesIO()
+    plt.savefig(img_buffer, format='png', bbox_inches='tight')
+    plt.close()
+    img_buffer.seek(0)
 
-    # Start SVG
-    parts = []
-    parts.append('<?xml version="1.0" encoding="UTF-8"?>')
-    parts.append(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb_min_x} {vb_min_y} {vb_w} {vb_h}" '
-                 f'width="{width_px}" height="{height_px}" preserveAspectRatio="xMidYMid meet">')
-
-    if title:
-        safe_title = html.escape(title)
-        parts.append(f'<title>{safe_title}</title>')
-
-    # background (optional, transparent)
-    # parts.append(f'<rect x="{vb_min_x}" y="{vb_min_y}" width="{vb_w}" height="{vb_h}" fill="white" />')
-
-    # Draw edges: normal edges first (lighter), then highlight edges on top
-    for u, v in G.edges():
-        if u not in pos or v not in pos:
-            continue
-        x1, y1 = pos[u]
-        x2, y2 = pos[v]
-        edge_key = tuple(sorted((u, v)))
-        if edge_key in highlight_edges:
-            # skip for now, draw highlighted edges later
-            continue
-        parts.append(
-            f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{edge_color}" stroke-width="2" stroke-linecap="round" opacity="0.75" />')
-
-    # highlighted edges (draw on top)
-    for e in highlight_edges:
-        u, v = e
-        if u not in pos or v not in pos:
-            continue
-        x1, y1 = pos[u]
-        x2, y2 = pos[v]
-        parts.append(
-            f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{highlight_color}" stroke-width="4" stroke-linecap="round" opacity="0.95" />')
-
-    # Draw nodes
-    for n in G.nodes():
-        if n not in pos:
-            continue
-        x, y = pos[n]
-        parts.append(
-            f'<circle cx="{x}" cy="{y}" r="{node_radius}" fill="{node_color}" stroke="{node_stroke}" stroke-width="2" />')
-        # label centered
-        safe_label = html.escape(str(n))
-        # text anchor middle, dominant-baseline central
-        parts.append(
-            f'<text x="{x}" y="{y}" text-anchor="middle" dominant-baseline="central" font-family="Arial, Helvetica, sans-serif" font-size="{max(10, node_radius)}" fill="{label_color}">{safe_label}</text>')
-
-    parts.append('</svg>')
-    svg = "\n".join(parts)
-    return svg
+    return img_buffer, kuratowski_type
 
 
-## ------------------------
-## Main visualize function
-## ------------------------
+def visualize_kuratowski_minor(kuratowski_minor):
+    plt.figure(figsize=(6, 6))
+
+    kuratowski_type = get_kuratowski_type(kuratowski_minor)  # Use this type for the title
+
+    if kuratowski_type == "K_5":
+        layout = nx.circular_layout(kuratowski_minor)
+        node_color = 'r'
+        title = "Minimal Kuratowski Minor: K_5"
+    elif kuratowski_type == "K_3,3":
+        try:
+            partition_a, partition_b = nx.bipartite.sets(kuratowski_minor)
+            layout = nx.bipartite_layout(kuratowski_minor, partition_a)
+        except:
+            layout = nx.circular_layout(kuratowski_minor)
+        node_color = 'darkorange'
+        title = "Minimal Kuratowski Minor: K_3,3"
+    else:
+        layout = nx.spring_layout(kuratowski_minor)
+        node_color = 'darkred'
+        title = f"Minimal Minor: {kuratowski_type}"
+
+    plt.title(title, fontsize=12, color=node_color)
+
+    nx.draw(kuratowski_minor, layout,
+            with_labels=True,
+            node_color=node_color,
+            node_size=800,
+            font_color='white',
+            font_weight='bold',
+            edge_color='k',
+            width=2)
+
+    plt.axis('off')
+
+    img_buffer = io.BytesIO()
+    plt.savefig(img_buffer, format='png', bbox_inches='tight')
+    plt.close()
+    img_buffer.seek(0)
+
+    return img_buffer, title
+
+
+## ----------------------------------------------------------------------
+## MAIN PLANARITY TEST FUNCTION
+## ----------------------------------------------------------------------
 
 def visualize_planarity_test(graph_data):
     """
-    Input graph_data expected to be:
-    {
-      "nodes": [{"id": "A", "x": 10, "y": 20}, ...],
-      "edges": [{"source": "A", "target": "B"}, ...]
-    }
-
-    Returns: svg_original (bytes), svg_subdivision (bytes or None), svg_minor (bytes or None),
-             title (str), kuratowski_type (str or None), kuratowski_edges (list)
+    Performs a planarity test and returns the image file data (bytes)
+    of the visualization, or None if input is invalid.
     """
     try:
         edges = [(e['source'], e['target']) for e in graph_data['edges']]
-        pos = {n['id']: (float(n['x']), float(n['y'])) for n in graph_data['nodes']}
-    except Exception as e:
-        return None, None, None, None, f"Data parsing error: {e}", None
+        pos = {n['id']: (n['x'], n['y']) for n in graph_data['nodes']}
+    except (KeyError, TypeError) as e:
+        # Return all required values on failure
+        # FIX: Ensure all return values are provided
+        return None, None, None, f"Data parsing error: Missing key or incorrect type. Details: {e}", None
 
     G = nx.Graph()
     G.add_edges_from(edges)
 
-    # run planarity
     is_planar, counterexample_graph = nx.check_planarity(G, counterexample=True)
 
-    title = "Graph is Planar" if is_planar else "Graph is NON-Planar (Kuratowski Counterexample Found)"
-    kuratowski_edges = []
-    svg_original = graph_to_svg(G, pos, highlight_edges=set(), title=title)
+    # --- (Visualization setup for the ORIGINAL graph remains the same) ---
+    plt.figure(figsize=(8, 8))
 
-    svg_subdivision = None
-    svg_minor = None
+    if is_planar:
+        title, result_color, edge_color, kuratowski_edges = "Graph is Planar", 'green', 'blue', []
+    else:
+        title, result_color, edge_color = f"Graph is NON-Planar (Kuratowski Counterexample Found)", 'red', 'gray'
+        kuratowski_edges = list(counterexample_graph.edges())
+
+    plt.title(title, fontsize=14, color=result_color)
+    nx.draw_networkx_edges(G, pos, edge_color=edge_color, alpha=0.5, width=1.5)
+
+    if not is_planar:
+        nx.draw_networkx_edges(G, pos, edgelist=kuratowski_edges, edge_color='r', width=3,
+                               label='Kuratowski Subdivision')
+        max_y = max((y for _, y in pos.values()), default=0)
+        plt.text(0, max_y * 1.05,
+                 f"Non-Planar due to Kuratowski subdivision: Vertices = {counterexample_graph.number_of_nodes()}",
+                 fontsize=10, color='r')
+
+    nx.draw_networkx_nodes(G, pos, node_color='skyblue', node_size=700)
+    nx.draw_networkx_labels(G, pos, font_weight='bold')
+
+    # Finalize and Return Image in Memory
+    plt.axis('off')
+    plt.gca().set_aspect('equal', adjustable='box')
+
+    img_buffer_original = io.BytesIO()
+    plt.savefig(img_buffer_original, format='png', bbox_inches='tight')
+    plt.close()
+    img_buffer_original.seek(0)
+
+    img_buffer_kuratowski_subdivision = None
+    img_buffer_kuratowski_minor = None
     kuratowski_type = None
 
-    if not is_planar and counterexample_graph is not None:
-        # highlight subdivision edges on the original layout (match node names)
-        try:
-            kuratowski_edges = [tuple(sorted(e)) for e in counterexample_graph.edges()]
-        except Exception:
-            kuratowski_edges = []
+    if not is_planar:
+        # 1. Generate the second visualization (Kuratowski Subdivision)
+        # NOTE: The second image is using the node coordinates found by NetworkX, which might not be clean.
+        img_buffer_kuratowski_subdivision, kuratowski_subdivision_type = visualize_kuratowski_subdivision(
+            counterexample_graph)
+        kuratowski_type = f"Subdivision of {kuratowski_subdivision_type}"
 
-        svg_subdivision = graph_to_svg(G, pos, highlight_edges=set(kuratowski_edges),
-                                       title=f"Intermediate Subdivision ({len(counterexample_graph.nodes())} vertices)")
-
-        # create minor and draw it (we'll lay it out with a circular layout for clarity)
+        # 2. Get the Minimal Minor (remove degree-2 nodes)
         kuratowski_minor = get_kuratowski_minor(counterexample_graph)
-        kuratowski_type = get_kuratowski_type(kuratowski_minor)
 
-        # For the minor, compute a simple layout (circular) and scale to reasonable coords
-        minor_pos = {}
-        if kuratowski_minor.number_of_nodes() > 0:
-            circ = nx.circular_layout(kuratowski_minor)
-            # multiply positions to look similar scale-wise
-            for node, (x, y) in circ.items():
-                minor_pos[node] = (float(x) * 200.0, float(y) * 200.0)
-        svg_minor = graph_to_svg(kuratowski_minor, minor_pos, highlight_edges=set(),
-                                 title=f"Minimal Kuratowski Minor: {kuratowski_type}")
+        # 3. Generate the third visualization (Kuratowski Minor)
+        img_buffer_kuratowski_minor, minor_title = visualize_kuratowski_minor(kuratowski_minor)
+        # Update type based on the clean minor
+        kuratowski_type = minor_title.replace("Minimal Kuratowski Minor: ", "")
 
-        kuratowski_type = kuratowski_type
-
-    # convert SVG strings to bytes
-    svg_original_b = svg_original.encode("utf-8")
-    svg_sub_b = svg_subdivision.encode("utf-8") if svg_subdivision else None
-    svg_minor_b = svg_minor.encode("utf-8") if svg_minor else None
-
-    return svg_original_b, svg_sub_b, svg_minor_b, title, kuratowski_type, kuratowski_edges
+    return img_buffer_original, img_buffer_kuratowski_subdivision, img_buffer_kuratowski_minor, title, kuratowski_type
 
 
-## ------------------------
-## Flask endpoint
-## ------------------------
+## ----------------------------------------------------------------------
+## FLASK API ENDPOINT
+## ----------------------------------------------------------------------
 
 @app.route('/planarity', methods=['POST'])
 def planarity_api():
+    """API endpoint to receive graph data and return the planarity images (Base64)."""
+
     data = request.get_json()
+
     if not data or 'nodes' not in data or 'edges' not in data:
         return jsonify({"error": "Invalid input format. Expected JSON with 'nodes' and 'edges'."}), 400
 
-    svg_original_b, svg_sub_b, svg_minor_b, result_title, kuratowski_type, kuratowski_edges = visualize_planarity_test(
-        data)
+    # FIX: Corrected variable names to match the function return
+    img_original, img_subdivision, img_minor, result_title, kuratowski_type = visualize_planarity_test(data)
 
-    if svg_original_b is None:
+    if img_original is None:
         return jsonify({"error": result_title}), 400
 
-    # Return base64-encoded SVG data URIs (client can use them as image src)
-    image_original = base64.b64encode(svg_original_b).decode('utf-8')
-    image_subdivision = base64.b64encode(svg_sub_b).decode('utf-8') if svg_sub_b else None
-    image_minor = base64.b64encode(svg_minor_b).decode('utf-8') if svg_minor_b else None
+    import base64
 
+    img_original_b64 = base64.b64encode(img_original.read()).decode('utf-8')
+
+    img_subdivision_b64 = None
+    img_minor_b64 = None
+
+    if img_subdivision:
+        img_subdivision_b64 = base64.b64encode(img_subdivision.read()).decode('utf-8')
+        img_minor_b64 = base64.b64encode(img_minor.read()).decode('utf-8')
+
+    # Return the three images and metadata as JSON
     return jsonify({
         "status": "success",
         "title": result_title,
-        "is_planar": (image_subdivision is None),
+        "is_planar": img_subdivision_b64 is None,
         "kuratowski_type": kuratowski_type,
-        "kuratowski_edges": [list(e) for e in kuratowski_edges],
-        "image_original": image_original,
-        "image_subdivision": image_subdivision,
-        "image_minor": image_minor
+        "image_original": img_original_b64,
+        "image_subdivision": img_subdivision_b64,
+        "image_minor": img_minor_b64
     }), 200
 
 
+# Add a route for the root path. Flask intercepts the request.
 @app.route('/', methods=['GET'])
 def root_status():
-    return "Planarity Testing API (SVG) is Running!", 200
+    # Since Vercel should be serving index.html automatically,
+    # this route is mainly here as a fallback and health check.
+    return "Planarity Testing API is Running!", 200
 
 
-if __name__ == "__main__":
+# Add a route for your favicon if Vercel fails to serve it statically.
+@app.route('/favicon.ico')
+def favicon():
+    # For simplicity, if favicon.ico is in the root, you can return a 404/200
+    # or use send_from_directory if you correctly configure templates/static folders
+    # (which is complicated for Vercel). For now, the vercel.json fix below is better.
+    return
+
+
+if __name__ == '__main__':
     app.run(debug=True)
