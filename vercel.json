@@ -14,7 +14,6 @@
         {
             "src": "/api/(.*)",
             "dest": "/api/index.py" 
-            /* NOTE: This should map to the file name, not just the path */
         },
         {
             "src": "/(.*)",
@@ -22,4 +21,5 @@
         }
     ]
 }
+
 
